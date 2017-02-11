@@ -109,7 +109,7 @@ namespace Insight.Database.Schema
 		{
 			// initialize dependencies
 			_columnProvider = columnProvider;
-
+			
 			// break up the name into its components
 			var match = new Regex(AutoProcRegexString, RegexOptions.IgnoreCase).Match(name);
 			_type = (ProcTypes)Enum.Parse(typeof(ProcTypes), match.Groups["type"].Value, true);
@@ -268,7 +268,7 @@ namespace Insight.Database.Schema
 			if (addRowNumber)
 			{
 				sb.AppendLine(",");
-				sb.AppendLine("[_insight_rownumber] [int]");
+				sb.AppendLine("[_insight_rownumber] [int] NOT NULL");
 			}
 			sb.AppendLine(")");
 
@@ -520,6 +520,7 @@ namespace Insight.Database.Schema
 			sb.AppendLine("AS TABLE");
 			sb.AppendLine("(");
 			sb.AppendLine(Join(columns, ",", "{0} {5} {3}"));
+			sb.AppendLine( "\t,[_insight_rownumber] INT" );
 			sb.AppendLine(")");
 
 			return sb.ToString();
@@ -586,6 +587,7 @@ namespace Insight.Database.Schema
 			IList<ColumnDefinition> outputs = columns.Where(c => c.IsReadOnly || c.IsRowVersion || c.HasDefault).ToList();
 			IEnumerable<ColumnDefinition> insertable = columns.Where(c => !c.IsReadOnly);
 
+			var identityColumn = columns.FirstOrDefault( e => e.IsIdentity );
 			string parameterName = _singularTableName;
 
 			// generate the sql for each proc and install them
@@ -597,6 +599,7 @@ namespace Insight.Database.Schema
 			{
 				sb.AppendLine(GenerateOutputTable(outputs));
 			}
+			
 			sb.AppendFormat("INSERT INTO {0}", _tableName.SchemaQualifiedTable);
 			sb.AppendLine();
 			if (insertable.Any())
@@ -615,9 +618,14 @@ namespace Insight.Database.Schema
 			sb.AppendLine(Join(insertable, ",", "{0}"));
 			sb.AppendFormat("FROM @{0}", parameterName);
 			sb.AppendLine();
+			sb.AppendLine( "ORDER BY [_insight_rownumber]" );
+			
 			if (outputs.Any())
 			{
+				sb.AppendLine( );
 				sb.AppendLine("SELECT * FROM @T");
+				if ( identityColumn != null )
+					sb.AppendFormat("ORDER BY {0}", identityColumn.ColumnName).AppendLine();
 			}
 			return sb.ToString();
 		}
@@ -645,7 +653,7 @@ namespace Insight.Database.Schema
 			sb.AppendLine("AS");
 			if (outputs.Any())
 			{
-				sb.AppendLine(GenerateOutputTable(outputs));
+				sb.AppendLine(GenerateOutputTable(outputs, addRowNumber: true));
 			}
 			if (optimistic)
 			{
@@ -671,6 +679,7 @@ namespace Insight.Database.Schema
 			{
 				sb.AppendLine("OUTPUT");
 				sb.AppendLine(Join(outputs, ",", "Inserted.{0}"));
+				sb.AppendLine( "\t,s.[_insight_rownumber]" );
 				sb.AppendLine("INTO @T");
 			}
 			sb.AppendLine(";");
@@ -683,6 +692,7 @@ namespace Insight.Database.Schema
 			if (outputs.Any())
 			{
 				sb.AppendLine("SELECT * FROM @T");
+				sb.AppendLine("ORDER BY [_insight_rownumber]");
 			}
 			return sb.ToString();
 		}
@@ -722,7 +732,7 @@ namespace Insight.Database.Schema
 
 			sb.AppendFormat("MERGE INTO {0} AS t", _tableName.SchemaQualifiedTable);
 			sb.AppendLine();
-			sb.AppendFormat("USING (SELECT *, [_insight_rownumber] = ROW_NUMBER() OVER (ORDER BY (SELECT 1)) FROM @{0}) AS s", parameterName);
+			sb.AppendFormat( "USING @{0} AS s", parameterName );
 			sb.AppendLine();
 			sb.AppendLine("ON");
 			sb.AppendLine("(");
@@ -751,7 +761,7 @@ namespace Insight.Database.Schema
 			{
 				sb.AppendLine("OUTPUT");
 				sb.AppendLine(Join(outputs, ",", "Inserted.{0}"));
-				sb.AppendLine(", s.[_insight_rownumber]");
+				sb.AppendLine("\t,s.[_insight_rownumber]");
 				sb.AppendLine("INTO @T");
 			}
 			sb.AppendLine(";");

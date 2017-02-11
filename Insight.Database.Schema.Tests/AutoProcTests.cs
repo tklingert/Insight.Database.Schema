@@ -214,7 +214,7 @@ namespace Insight.Database.Schema.Tests
 		{
 			AutoProc p = new AutoProc("AUTOPROC Table [Beer]", Columns, null);
 
-			Assert.AreEqual("CREATE TYPE [dbo].[BeerTable]\r\nAS TABLE\r\n(\r\n\t[ID] int NULL,\r\n\t[Name] varchar(256) NOT NULL,\r\n\t[OriginalGravity] decimal(18,2) NOT NULL\r\n)\r\n\r\nGO\r\n", p.Sql);
+			Assert.AreEqual( "CREATE TYPE [dbo].[BeerTable]\r\nAS TABLE\r\n(\r\n\t[ID] int NULL,\r\n\t[Name] varchar(256) NOT NULL,\r\n\t[OriginalGravity] decimal(18,2) NOT NULL\r\n\t,[_insight_rownumber] INT\r\n)\r\n\r\nGO\r\n", p.Sql );
 		}
 
 		[Test]
@@ -222,7 +222,23 @@ namespace Insight.Database.Schema.Tests
 		{
 			AutoProc p = new AutoProc("AUTOPROC InsertMany [Beer]", Columns, null);
 
-			Assert.AreEqual("CREATE PROCEDURE [dbo].[InsertBeers] (@Beer [dbo].[BeerTable] READONLY)\r\nAS\r\nDECLARE @T TABLE(\r\n[ID] int)\r\n\r\nINSERT INTO [dbo].[Beer]\r\n(\r\n\t[Name],\r\n\t[OriginalGravity]\r\n)\r\nOUTPUT\r\n\tInserted.[ID]\r\nINTO @T\r\nSELECT\r\n\t[Name],\r\n\t[OriginalGravity]\r\nFROM @Beer\r\nSELECT * FROM @T\r\n\r\nGO\r\n", p.Sql);
+			Assert.AreEqual("CREATE PROCEDURE [dbo].[InsertBeers] (@Beer [dbo].[BeerTable] READONLY)\r\nAS\r\nDECLARE @T TABLE(\r\n[ID] int)\r\n\r\nINSERT INTO [dbo].[Beer]\r\n(\r\n\t[Name],\r\n\t[OriginalGravity]\r\n)\r\nOUTPUT\r\n\tInserted.[ID]\r\nINTO @T\r\nSELECT\r\n\t[Name],\r\n\t[OriginalGravity]\r\nFROM @Beer\r\nORDER BY [_insight_rownumber]\r\n\r\nSELECT * FROM @T\r\nORDER BY [ID]\r\n\r\nGO\r\n", p.Sql);
+		}
+
+		[Test]
+		public void TestUpdateManyGeneration( )
+		{
+			AutoProc p = new AutoProc( "AUTOPROC UpdateMany [Beer]", Columns, null );
+
+			Assert.AreEqual( "CREATE PROCEDURE [dbo].[UpdateBeers] (@Beer [dbo].[BeerTable] READONLY)\r\nAS\r\nDECLARE @T TABLE(\r\n[ID] int,\r\n[_insight_rownumber] [int] NOT NULL\r\n)\r\n\r\nMERGE INTO [dbo].[Beer] AS t\r\nUSING @Beer AS s\r\nON\r\n(\r\n\tt.[ID] = s.[ID]\r\n)\r\nWHEN MATCHED THEN UPDATE SET\r\n\tt.[Name] = s.[Name],\r\n\tt.[OriginalGravity] = s.[OriginalGravity]\r\nOUTPUT\r\n\tInserted.[ID]\r\n\t,s.[_insight_rownumber]\r\nINTO @T\r\n;\r\nSELECT * FROM @T\r\nORDER BY [_insight_rownumber]\r\n\r\nGO\r\n", p.Sql );
+		}
+
+		[Test]
+		public void TestUpsertManyGeneration( )
+		{
+			AutoProc p = new AutoProc( "AUTOPROC UpsertMany [Beer]", Columns, null );
+
+			Assert.AreEqual( "CREATE PROCEDURE [dbo].[UpsertBeers] (@Beer [dbo].[BeerTable] READONLY)\r\nAS\r\nDECLARE @T TABLE(\r\n[ID] int,\r\n[_insight_rownumber] [int] NOT NULL\r\n)\r\n\r\nMERGE INTO [dbo].[Beer] AS t\r\nUSING @Beer AS s\r\nON\r\n(\r\n\tt.[ID] = s.[ID]\r\n)\r\nWHEN MATCHED THEN UPDATE SET\r\n\tt.[Name] = s.[Name],\r\n\tt.[OriginalGravity] = s.[OriginalGravity]\r\nWHEN NOT MATCHED BY TARGET THEN INSERT\r\n(\r\n\t[Name],\r\n\t[OriginalGravity]\r\n)\r\nVALUES\r\n(\r\n\ts.[Name],\r\n\ts.[OriginalGravity]\r\n)\r\nOUTPUT\r\n\tInserted.[ID]\r\n\t,s.[_insight_rownumber]\r\nINTO @T\r\n;\r\nSELECT \r\n\t[ID]\r\nFROM @T ORDER BY [_insight_rownumber]\r\n\r\nGO\r\n", p.Sql );
 		}
 		#endregion
 
@@ -334,22 +350,22 @@ namespace Insight.Database.Schema.Tests
 					schema.Add("-- AUTOPROC All Beer");
 					installer.Install("test", schema);
 
-					using (var reader = c.GetReaderSql(@"
+					using (var reader = c.GetReaderSql( @"
 						truncate table Beer
 
 						declare @b BeerTable
-						insert into @b (id, name) values (null, 'one')
-						insert into @b (id, name) values (null, 'two')
+						insert into @b (id, name, [_insight_rownumber]) values (null, 'one', 1)
+						insert into @b (id, name, [_insight_rownumber]) values (null, 'two', 2)
 
 						exec upsertBeers @b
 
 						delete from @b
-						insert into @b (id, name) values (1, 'one')
-						insert into @b (id, name) values (2, 'two')
-						insert into @b (id, name) values (null, 'three')
+						insert into @b (id, name, [_insight_rownumber]) values (1, 'one', 1)
+						insert into @b (id, name, [_insight_rownumber]) values (2, 'two', 2)
+						insert into @b (id, name, [_insight_rownumber]) values (null, 'three', 3)
 
 						exec upsertBeers @b
-					"))
+					" ) )
 					{
 						reader.NextResult();
 						reader.Read(); Assert.AreEqual(1, reader.GetInt32(0));
