@@ -587,7 +587,6 @@ namespace Insight.Database.Schema
 			IList<ColumnDefinition> outputs = columns.Where(c => c.IsReadOnly || c.IsRowVersion || c.HasDefault).ToList();
 			IEnumerable<ColumnDefinition> insertable = columns.Where(c => !c.IsReadOnly);
 
-			var identityColumn = columns.FirstOrDefault( e => e.IsIdentity );
 			string parameterName = _singularTableName;
 
 			// generate the sql for each proc and install them
@@ -597,36 +596,41 @@ namespace Insight.Database.Schema
 			sb.AppendLine("AS");
 			if (outputs.Any())
 			{
-				sb.AppendLine(GenerateOutputTable(outputs));
+				sb.AppendLine(GenerateOutputTable(outputs, addRowNumber: true));
 			}
-			
-			sb.AppendFormat("INSERT INTO {0}", _tableName.SchemaQualifiedTable);
+			sb.AppendFormat("MERGE INTO {0} AS t", _tableName.SchemaQualifiedTable);
 			sb.AppendLine();
+			sb.AppendFormat("USING @{0} AS s", parameterName);
+			sb.AppendLine();
+			sb.AppendLine("ON (0=1) -- force insert");
+			sb.AppendLine("WHEN NOT MATCHED THEN");
+			sb.AppendLine("INSERT");
 			if (insertable.Any())
 			{
 				sb.AppendLine("(");
-				sb.AppendLine(Join(insertable, ",", "{0}"));
+				sb.AppendLine(Join(insertable,",","{0}"));
+				sb.AppendLine(")");
+				sb.AppendLine("VALUES");
+				sb.AppendLine("(");
+				sb.AppendLine(Join(insertable,",","s.{0}"));
 				sb.AppendLine(")");
 			}
 			if (outputs.Any())
 			{
 				sb.AppendLine("OUTPUT");
-				sb.AppendLine(Join(outputs, ",", "Inserted.{0}"));
+				sb.AppendLine(Join( outputs, ",", "Inserted.{0}"));
+				sb.AppendLine("\t,s.[_insight_rownumber]");
 				sb.AppendLine("INTO @T");
 			}
-			sb.AppendLine("SELECT");
-			sb.AppendLine(Join(insertable, ",", "{0}"));
-			sb.AppendFormat("FROM @{0}", parameterName);
-			sb.AppendLine();
-			sb.AppendLine( "ORDER BY [_insight_rownumber]" );
-			
+			sb.AppendLine(";");
 			if (outputs.Any())
 			{
-				sb.AppendLine( );
-				sb.AppendLine("SELECT * FROM @T");
-				if ( identityColumn != null )
-					sb.AppendFormat("ORDER BY {0}", identityColumn.ColumnName).AppendLine();
+				sb.AppendLine("SELECT ");
+				sb.AppendLine(Join( outputs,",","{0}"));
+				sb.AppendLine("FROM @T");
+				sb.AppendLine("ORDER BY [_insight_rownumber]");
 			}
+			
 			return sb.ToString();
 		}
 

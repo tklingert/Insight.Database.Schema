@@ -222,7 +222,7 @@ namespace Insight.Database.Schema.Tests
 		{
 			AutoProc p = new AutoProc("AUTOPROC InsertMany [Beer]", Columns, null);
 
-			Assert.AreEqual("CREATE PROCEDURE [dbo].[InsertBeers] (@Beer [dbo].[BeerTable] READONLY)\r\nAS\r\nDECLARE @T TABLE(\r\n[ID] int)\r\n\r\nINSERT INTO [dbo].[Beer]\r\n(\r\n\t[Name],\r\n\t[OriginalGravity]\r\n)\r\nOUTPUT\r\n\tInserted.[ID]\r\nINTO @T\r\nSELECT\r\n\t[Name],\r\n\t[OriginalGravity]\r\nFROM @Beer\r\nORDER BY [_insight_rownumber]\r\n\r\nSELECT * FROM @T\r\nORDER BY [ID]\r\n\r\nGO\r\n", p.Sql);
+			Assert.AreEqual("CREATE PROCEDURE [dbo].[InsertBeers] (@Beer [dbo].[BeerTable] READONLY)\r\nAS\r\nDECLARE @T TABLE(\r\n[ID] int,\r\n[_insight_rownumber] [int] NOT NULL\r\n)\r\n\r\nMERGE INTO [dbo].[Beer] AS t\r\nUSING @Beer AS s\r\nON (0=1) -- force insert\r\nWHEN NOT MATCHED THEN\r\nINSERT\r\n(\r\n\t[Name],\r\n\t[OriginalGravity]\r\n)\r\nVALUES\r\n(\r\n\ts.[Name],\r\n\ts.[OriginalGravity]\r\n)\r\nOUTPUT\r\n\tInserted.[ID]\r\n\t,s.[_insight_rownumber]\r\nINTO @T\r\n;\r\nSELECT \r\n\t[ID]\r\nFROM @T\r\nORDER BY [_insight_rownumber]\r\n\r\nGO\r\n", p.Sql);
 		}
 
 		[Test]
